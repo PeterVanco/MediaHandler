@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"flag"
 	"fmt"
 	"github.com/pbnjay/clustering"
@@ -20,7 +19,9 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -37,7 +38,6 @@ var (
 )
 
 var (
-	buf bytes.Buffer
 	// logger = log.New(&buf, "logger: ", log.Lshortfile)
 	logger = log.New(bufio.NewWriter(os.Stdout), "", log.Lshortfile)
 	store  *duplo.Store
@@ -45,25 +45,26 @@ var (
 )
 
 func init() {
-	store = duplo.New()
 	logger.SetOutput(os.Stdout)
-	initBar(bar)
+	store = duplo.New()
+	bar = initBar()
 }
-func initBar(bar *mpb.Bar) {
+
+func initBar() *mpb.Bar {
 	p := mpb.New(
 		// override default (80) width
 		mpb.WithWidth(64),
 		// override default "[=>-]" format
 		mpb.WithFormat("╢▌▌░╟"),
 		// override default 120ms refresh rate
-		mpb.WithRefreshRate(180*time.Millisecond*10000),
+		mpb.WithRefreshRate(10*time.Second),
 	)
 
-	name := "Processed Images:"
-	bar = p.AddBar(0,
+	//name := "Processed Images:"
+	return p.AddBar(0,
 		mpb.PrependDecorators(
 			// display our name with one space on the right
-			decor.Name(name, decor.WC{W: len(name) + 1, C: decor.DidentRight}),
+			// decor.Name(name, decor.WC{W: len(name) + 1, C: decor.DidentRight}),
 			decor.OnComplete(
 				// ETA decorator with ewma age of 60, and width reservation of 4
 				decor.EwmaETA(decor.ET_STYLE_GO, 60, decor.WC{W: 4}), "done",
@@ -88,13 +89,12 @@ func main() {
 	}
 
 	logger.Printf("found %d files\n", len(files))
-	//bar.SetTotal(int64(len(files)), true)
+	bar.SetTotal(int64(len(files)), false)
 
 	for _, f := range files {
 		handleFile(f, distanceMap)
-		// bar.Increment()
+		bar.Increment()
 	}
-	// p.Wait()
 
 	logger.Printf("calculating clusters from %d hashes\n", len(store.IDs()))
 	calculateClusters(clustering.NewDistanceMapClusterSet(distanceMap))
@@ -102,7 +102,6 @@ func main() {
 
 func calculateClusters(clusterSet clustering.ClusterSet) {
 	clustering.Cluster(clusterSet, clustering.Threshold(float64(*sensitivity)), clustering.CompleteLinkage())
-	// Enumerate clusters and print members
 	clusterSet.EachCluster(-1, func(cluster int) {
 		clusterSize := 0
 		clusterSet.EachItem(cluster, func(x clustering.ClusterItem) {
@@ -165,11 +164,12 @@ func handleImage(filename string, img image.Image, f os.FileInfo, distanceMap cl
 	distanceItem := make(map[clustering.ClusterItem]float64)
 	if len(matches) > 0 {
 		sort.Sort(matches)
+		logger.Printf("adding %d matches to cluster set\n", len(matches))
 
 		for _, match := range matches {
-			fi := match.ID.(os.FileInfo)
-			logger.Printf("    %s score with %s (%d)\n", filename, fi.Name(), int(match.Score))
-			distanceItem[fi.Name()] = match.Score
+			fileInfo := match.ID.(os.FileInfo)
+			// logger.Printf("    %s score with %s (%d)\n", filename, fileInfo.Name(), int(match.Score))
+			distanceItem[fileInfo.Name()] = match.Score
 		}
 
 		//match := matches[0]
@@ -185,7 +185,11 @@ func handleImage(filename string, img image.Image, f os.FileInfo, distanceMap cl
 }
 
 func moveFile(filename string, uid int64) {
-	newFilename := fmt.Sprintf("%s_%d_%s", "DUP", uid, filename)
+	filenameSuffix := filename
+	if match := regexp.MustCompile("DUP_([0-9]+)_").FindString(filename); match != "" {
+		filenameSuffix = strings.TrimPrefix(filename, match)
+	}
+	newFilename := fmt.Sprintf("%s_%d_%s", "DUP", uid, filenameSuffix)
 	if *dryRun {
 		logger.Printf("    would move file %s to %s\n", filename, newFilename)
 	} else {
