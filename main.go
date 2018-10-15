@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
+	"github.com/gin-gonic/gin"
 	"github.com/pbnjay/clustering"
 	"github.com/rivo/duplo"
 	"github.com/vbauerster/mpb"
@@ -17,6 +18,7 @@ import (
 	"log"
 	"math"
 	"math/rand"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -77,11 +79,16 @@ func initBar() *mpb.Bar {
 }
 
 func main() {
-
-	distanceMap := make(clustering.DistanceMap)
-
 	flag.Parse()
 	*sensitivity -= 100
+
+	r := gin.Default()
+	r.GET("/ping", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"message": "pong",
+		})
+	})
+	r.Run() // listen and serve on 0.0.0.0:8080
 
 	files, err := ioutil.ReadDir(*path)
 	if err != nil {
@@ -90,6 +97,8 @@ func main() {
 
 	logger.Printf("found %d files\n", len(files))
 	bar.SetTotal(int64(len(files)), false)
+
+	distanceMap := make(clustering.DistanceMap)
 
 	for _, f := range files {
 		handleFile(f, distanceMap)
@@ -127,6 +136,7 @@ func handleFile(f os.FileInfo, distanceMap clustering.DistanceMap) {
 	if _, ok := extensions[ext]; !ok {
 		return
 	}
+
 	filename := filepath.Join(*path, f.Name())
 	file, err := os.Open(filename)
 	if err != nil {
@@ -135,24 +145,12 @@ func handleFile(f os.FileInfo, distanceMap clustering.DistanceMap) {
 	}
 	defer file.Close()
 
-	// TODO: use image.Decode() ?
-	_, format, err := image.DecodeConfig(file)
+	img, _, err := image.Decode(file)
 	if err != nil {
 		logger.Printf("%s: %v\n", filename, err)
 		return
 	}
-	if decodeFunc, ok := extensions[format]; ok {
-		if _, err = file.Seek(0, 0); err != nil {
-			logger.Printf("could not seek (rewind) %s: %v\n", filename, err)
-			return
-		}
-		img, err := decodeFunc(file)
-		if err != nil {
-			logger.Printf("ignoring %s: %v\n", filename, err)
-			return
-		}
-		handleImage(filename, img, f, distanceMap)
-	}
+	handleImage(filename, img, f, distanceMap)
 }
 
 func handleImage(filename string, img image.Image, f os.FileInfo, distanceMap clustering.DistanceMap) {
