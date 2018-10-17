@@ -2,32 +2,34 @@ package api
 
 import (
 	"MediaHandler/constants"
-	"fmt"
+	. "MediaHandler/util"
 	"github.com/gin-gonic/gin"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 func GetSingle(c *gin.Context, root string) {
-
-	var files []string
-
+	var duplicates []string
+	var duplicateUid string
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if strings.Contains(info.Name(), constants.DuplicateMarker) {
-			files = append(files, path)
+		if match := constants.DuplicateRegExp.FindString(info.Name()); match != "" {
+			if duplicateUid == "" {
+				duplicates = append(duplicates, path)
+				duplicateUid = match
+			} else if constants.DuplicateRegExp.FindString(info.Name()) == duplicateUid {
+				duplicates = append(duplicates, path)
+			} else {
+				return io.EOF
+			}
 		}
 		return nil
 	})
 
-	if err != nil {
-		panic(err)
+	if err != nil && err != io.EOF {
+		Logger.Panic(err)
 	}
 
-	for _, file := range files {
-		fmt.Println(file)
-	}
-
-	c.JSON(http.StatusOK, files)
+	c.JSON(http.StatusOK, duplicates)
 }

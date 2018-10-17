@@ -54,7 +54,6 @@ func init() {
 	RootCmd.AddCommand(findDuplicatesCmd)
 	findDuplicatesCmd.Flags().IntVar(&sensitivity, "sensitivity", 0, "the sensitivity threshold (the lower, the better the match (can be negative))")
 	findDuplicatesCmd.Flags().StringVar(&path, "path", ".", "the path to search the images")
-	findDuplicatesCmd.Flags().Bool("dryrun", false, "only print found matches")
 	findDuplicatesCmd.Flags().Int("uidlen", 8, "length of duplicate UID")
 }
 

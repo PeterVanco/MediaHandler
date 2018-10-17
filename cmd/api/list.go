@@ -16,12 +16,13 @@ func GetList(c *gin.Context, root string) {
 	events := make(map[string]map[string]int)
 
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		Logger.Printf("walkRoot found %s (%s)", info.Name(), path)
 		if info.Name() == root {
 			return nil
 		}
 		if info.IsDir() {
-			Logger.Printf("walking event %s\n", info.Name())
-			events[info.Name()] = walkEvent(info.Name())
+			Logger.Printf("walking event %s\n", path)
+			events[info.Name()] = walkEvent(path)
 			return filepath.SkipDir
 		}
 		return nil
@@ -40,6 +41,7 @@ func GetList(c *gin.Context, root string) {
 func walkEvent(path string) map[string]int {
 	var duplicates []string
 	filepath.Walk(path, func(path string, info os.FileInfo, err error) error {
+		Logger.Printf("walkEvent found %s (%s)", info.Name(), path)
 		if match := constants.DuplicateRegExp.FindString(info.Name()); match != "" {
 			duplicates = append(duplicates, match[:len(match)-1])
 		}
@@ -47,8 +49,8 @@ func walkEvent(path string) map[string]int {
 	})
 
 	counter := make(map[string]int)
-	for _, row := range duplicates {
-		counter[row]++
+	for _, dup := range duplicates {
+		counter[dup]++
 	}
 	return counter
 }

@@ -1,6 +1,8 @@
 package api
 
 import (
+	"MediaHandler/constants"
+	. "MediaHandler/util"
 	"encoding/json"
 	"fmt"
 	"github.com/gin-gonic/gin"
@@ -39,14 +41,18 @@ func renamePhotos(photos []Photo) {
 
 func renamePhoto(photo Photo, namingSuffix string) {
 	path, filename := filepath.Split(photo.Url)
-	if match := regexp.MustCompile("DUP_([0-9]+)_").FindString(filename); match != "" {
+	if match := constants.DuplicateRegExp.FindString(filename); match != "" {
 		groups := regexp.MustCompile(`DUP_(?P<Uid>[0-9]+)_(?P<Filename>.*)\.(?P<Ext>.*)`).FindStringSubmatch(filename)
-		newFilename := fmt.Sprintf("%s%s.%s", groups[1], namingSuffix, groups[2])
-		os.Rename(photo.Url, filepath.Join(path, newFilename))
+		newFilename := fmt.Sprintf("%s%s.%s", groups[2], namingSuffix, groups[3])
+		if dryRun, _ := Flags.GetBool("dryrun"); dryRun {
+			Logger.Printf("    would rename file %s to %s\n", photo.Url, filepath.Join(path, newFilename))
+		} else {
+			Logger.Printf("    renaming file %s to %s\n", photo.Url, filepath.Join(path, newFilename))
+			if err := os.Rename(photo.Url, filepath.Join(path, newFilename)); err != nil {
+				Logger.Printf("    ! could not rename file %s to %s\n", photo.Url, filepath.Join(path, newFilename))
+			}
+		}
 	}
-	//r := regexp.MustCompile(`(?P<Year>\d{4})-(?P<Month>\d{2})-(?P<Day>\d{2})`)
-	//r := regexp.MustCompile(`DUP_(?P<Uid>[0-9]+)_(?P<Month>\d{2})-(?P<Day>\d{2})`)
-	//fmt.Printf("%#v\n", r.FindStringSubmatch(`2015-05-27`))
 }
 
 func keepCount(photos []Photo) int {
@@ -68,5 +74,12 @@ func deletePhotos(photos []Photo) {
 }
 
 func deletePhoto(photo Photo) {
-	os.Remove(photo.Url)
+	if dryRun, _ := Flags.GetBool("dryrun"); dryRun {
+		Logger.Printf("    would delete file %s\n", photo.Url)
+	} else {
+		Logger.Printf("    deleting file %s\n", photo.Url)
+		if err := os.Remove(photo.Url); err != nil {
+			Logger.Printf("    ! could not delete file %s\n", photo.Url)
+		}
+	}
 }

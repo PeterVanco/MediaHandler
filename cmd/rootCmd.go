@@ -21,6 +21,7 @@ var (
 func init() {
 	cobra.OnInitialize(initConfig)
 	RootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.mediahandler.yaml)")
+	RootCmd.PersistentFlags().Bool("dryrun", false, "do not rename/delete files, only print intentions")
 }
 
 func initConfig() {
