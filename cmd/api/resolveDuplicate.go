@@ -42,7 +42,7 @@ func renamePhotos(photos []Photo) {
 func renamePhoto(photo Photo, namingSuffix string) {
 	path, filename := filepath.Split(photo.Url)
 	if match := constants.DuplicateRegExp.FindString(filename); match != "" {
-		groups := regexp.MustCompile(`DUP_(?P<Uid>[0-9]+)_(?P<Filename>.*)\.(?P<Ext>.*)`).FindStringSubmatch(filename)
+		groups := regexp.MustCompile(constants.DuplicateMarker + `_(?P<Uid>[0-9]+)_(?P<Filename>.*)\.(?P<Ext>.*)`).FindStringSubmatch(filename)
 		newFilename := fmt.Sprintf("%s%s.%s", groups[2], namingSuffix, groups[3])
 		if dryRun, _ := Flags.GetBool("dryrun"); dryRun {
 			Logger.Printf("    would rename file %s to %s\n", photo.Url, filepath.Join(path, newFilename))

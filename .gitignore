@@ -17,3 +17,5 @@ dist/
 *.iml
 .idea
 photo
+
+MediaHandler

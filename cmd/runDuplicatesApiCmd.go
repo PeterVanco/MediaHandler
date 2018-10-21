@@ -31,15 +31,11 @@ func runDuplicatesApi(cmd *cobra.Command, args []string) {
 	router := gin.Default()
 	router.Use(cors.Default())
 
-	router.GET("/list", func(c *gin.Context) {
-		root, _ := runDuplicatesApiCmd.Flags().GetString("photo-root")
-		api.GetList(c, root)
-	})
+	router.GET("/duplicates", callWithRoot(api.GetDuplicates))
 
-	router.GET("/single", func(c *gin.Context) {
-		root, _ := runDuplicatesApiCmd.Flags().GetString("photo-root")
-		api.GetSingle(c, root)
-	})
+	router.GET("/list", callWithRoot(api.GetList))
+
+	router.GET("/single", callWithRoot(api.GetSingle))
 
 	router.POST("/single", func(c *gin.Context) {
 		var rootDefinition api.RootDefinition
@@ -54,8 +50,21 @@ func runDuplicatesApi(cmd *cobra.Command, args []string) {
 		api.GetSingle(c, rootDefinition.Root)
 	})
 
+	router.GET("/thumbnail/*path", func(c *gin.Context) {
+		api.GetResize(c, c.Param("path"))
+	})
+
 	router.POST("/resolve", api.GetResolve)
+
+	router.GET("/random", callWithRoot(api.GetRandom))
 
 	port, _ := runDuplicatesApiCmd.Flags().GetUint16("port")
 	router.Run(fmt.Sprintf(":%d", port))
+}
+
+func callWithRoot(fn func(*gin.Context, string)) func(c *gin.Context) {
+	return func(c *gin.Context) {
+		root, _ := runDuplicatesApiCmd.Flags().GetString("photo-root")
+		fn(c, root)
+	}
 }

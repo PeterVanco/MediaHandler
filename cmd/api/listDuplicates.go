@@ -3,11 +3,11 @@ package api
 import (
 	"MediaHandler/constants"
 	. "MediaHandler/util"
-	"fmt"
 	"github.com/gin-gonic/gin"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 func GetList(c *gin.Context, root string) {
@@ -20,20 +20,20 @@ func GetList(c *gin.Context, root string) {
 		if info.Name() == root {
 			return nil
 		}
-		if info.IsDir() {
+		if strings.Contains(path, "Recycle") {
+			return filepath.SkipDir
+		}
+		if info.IsDir() && path != root {
 			Logger.Printf("walking event %s\n", path)
-			events[info.Name()] = walkEvent(path)
+			events[path] = walkEvent(path)
 			return filepath.SkipDir
 		}
 		return nil
 	})
 
 	if err != nil {
-		panic(err)
-	}
-
-	for event := range events {
-		fmt.Println(event)
+		c.AbortWithError(http.StatusInternalServerError, err)
+		return
 	}
 
 	c.JSON(http.StatusOK, events)
@@ -41,7 +41,10 @@ func GetList(c *gin.Context, root string) {
 func walkEvent(path string) map[string]int {
 	var duplicates []string
 	filepath.Walk(path, func(path string, info os.FileInfo, err error) error {
-		Logger.Printf("walkEvent found %s (%s)", info.Name(), path)
+		// Logger.Printf("walkEvent found %s (%s)", info.Name(), path)
+		if strings.Contains(path, "thumb") {
+			return filepath.SkipDir
+		}
 		if match := constants.DuplicateRegExp.FindString(info.Name()); match != "" {
 			duplicates = append(duplicates, match[:len(match)-1])
 		}

@@ -2,12 +2,12 @@ package api
 
 import (
 	"MediaHandler/constants"
-	. "MediaHandler/util"
 	"github.com/gin-gonic/gin"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 func GetSingle(c *gin.Context, root string) {
@@ -15,6 +15,9 @@ func GetSingle(c *gin.Context, root string) {
 	var duplicateUid string
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if match := constants.DuplicateRegExp.FindString(info.Name()); match != "" {
+			if strings.Contains(path, "thumb") {
+				return filepath.SkipDir
+			}
 			if duplicateUid == "" {
 				duplicates = append(duplicates, path)
 				duplicateUid = match
@@ -28,7 +31,13 @@ func GetSingle(c *gin.Context, root string) {
 	})
 
 	if err != nil && err != io.EOF {
-		Logger.Panic(err)
+		c.AbortWithError(http.StatusInternalServerError, err)
+		return
+	}
+
+	if len(duplicates) == 0 {
+		c.AbortWithStatus(http.StatusNoContent)
+		return
 	}
 
 	c.JSON(http.StatusOK, duplicates)

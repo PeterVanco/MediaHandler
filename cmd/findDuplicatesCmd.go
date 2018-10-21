@@ -10,10 +10,6 @@ import (
 	"github.com/vbauerster/mpb"
 	"github.com/vbauerster/mpb/decor"
 	"image"
-	"image/gif"
-	"image/jpeg"
-	"image/png"
-	"io"
 	"io/ioutil"
 	"log"
 	"math"
@@ -33,12 +29,6 @@ var (
 	path        string
 
 	// globals
-	extensions = map[string]func(io.Reader) (image.Image, error){
-		"jpg":  jpeg.Decode,
-		"jpeg": jpeg.Decode,
-		"png":  png.Decode,
-		"gif":  gif.Decode,
-	}
 	store *duplo.Store
 	bar   *mpb.Bar
 )
@@ -130,7 +120,8 @@ func handleFile(f os.FileInfo, distanceMap clustering.DistanceMap) {
 	if len(ext) > 1 {
 		ext = ext[1:]
 	}
-	if _, ok := extensions[ext]; !ok {
+
+	if _, extensionSupported := constants.PhotoExtensions[ext]; !extensionSupported {
 		return
 	}
 
