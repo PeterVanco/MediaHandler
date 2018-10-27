@@ -18,7 +18,7 @@ var (
 	FilteredTerms = []string{"thumb", "Recycle", "Thumb"}
 )
 
-func FilterPAth(path string) bool {
+func FilterPath(path string) bool {
 	for _, filter := range FilteredTerms {
 		if strings.Contains(path, filter) {
 			return false

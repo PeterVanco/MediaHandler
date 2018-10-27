@@ -10,8 +10,7 @@ import (
 	"github.com/vbauerster/mpb"
 	"github.com/vbauerster/mpb/decor"
 	"image"
-	"io/ioutil"
-	"log"
+	"io"
 	"math"
 	"math/rand"
 	"os"
@@ -26,7 +25,6 @@ var findDuplicatesCmd *cobra.Command
 var (
 	// params
 	sensitivity int
-	path        string
 
 	// globals
 	store *duplo.Store
@@ -38,36 +36,68 @@ func init() {
 	findDuplicatesCmd = &cobra.Command{
 		Use:   "find-duplicates",
 		Short: "finds duplicates in in defined path",
-		Run:   findDuplicates,
+		Run: func(cmd *cobra.Command, args []string) {
+			path, _ := cmd.Flags().GetString("path")
+			dryRun, _ := cmd.Flags().GetBool("dryrun")
+			findDuplicates(path, dryRun)
+		},
 	}
 
 	RootCmd.AddCommand(findDuplicatesCmd)
 	findDuplicatesCmd.Flags().IntVar(&sensitivity, "sensitivity", 0, "the sensitivity threshold (the lower, the better the match (can be negative))")
-	findDuplicatesCmd.Flags().StringVar(&path, "path", ".", "the path to search the images")
+	findDuplicatesCmd.Flags().String("path", ".", "the path to search the images")
 	findDuplicatesCmd.Flags().Int("uidlen", 8, "length of duplicate UID")
 }
 
-func findDuplicates(cmd *cobra.Command, args []string) {
+func findDuplicates(path string, dryRun bool) {
 	bar = initBar()
 	store = duplo.New()
 
-	files, err := ioutil.ReadDir(path)
-	if err != nil {
-		log.Fatal(err)
-	}
-
+	files := findImages(path)
 	Logger.Printf("found %d files\n", len(files))
 	bar.SetTotal(int64(len(files)), false)
 
-	distanceMap := make(clustering.DistanceMap)
+	distanceMap := addImagesToStore(files)
 
-	for _, f := range files {
-		handleFile(f, distanceMap)
-		bar.Increment()
+	for _, id := range store.IDs() {
+		Logger.Printf("item %s is in the store\n", id.(string))
 	}
 
 	Logger.Printf("calculating clusters from %d hashes\n", len(store.IDs()))
-	calculateClusters(clustering.NewDistanceMapClusterSet(distanceMap))
+	clusterSet := clustering.NewDistanceMapClusterSet(distanceMap)
+	clustering.Cluster(clusterSet, clustering.Threshold(float64(sensitivity)), clustering.CompleteLinkage())
+	moveClusteredDuplicates(clusterSet, dryRun)
+}
+
+func findImages(path string) []string {
+	var files []string
+	err := filepath.Walk(path, func(path string, info os.FileInfo, err error) error {
+
+		Logger.Println(path)
+		if !constants.FilterPath(path) {
+			return filepath.SkipDir
+		}
+
+		if info.IsDir() {
+			return nil
+		}
+
+		files = append(files, path)
+		return nil
+	})
+	if err != nil && err != io.EOF {
+		panic(err)
+	}
+	return files
+}
+
+func addImagesToStore(files []string) clustering.DistanceMap {
+	distanceMap := make(clustering.DistanceMap)
+	for _, filePath := range files {
+		handleFile(filePath, distanceMap)
+		bar.Increment()
+	}
+	return distanceMap
 }
 
 func initBar() *mpb.Bar {
@@ -96,8 +126,7 @@ func initBar() *mpb.Bar {
 	)
 }
 
-func calculateClusters(clusterSet clustering.ClusterSet) {
-	clustering.Cluster(clusterSet, clustering.Threshold(float64(sensitivity)), clustering.CompleteLinkage())
+func moveClusteredDuplicates(clusterSet clustering.ClusterSet, dryRun bool) {
 	clusterSet.EachCluster(-1, func(cluster int) {
 		clusterSize := 0
 		clusterSet.EachItem(cluster, func(x clustering.ClusterItem) {
@@ -109,14 +138,14 @@ func calculateClusters(clusterSet clustering.ClusterSet) {
 			uid := int64(math.Pow10(uidLen-1)) + rand.Int63n(int64(math.Pow10(uidLen)))
 			Logger.Printf("found duplicate set as cluster %d with size=%d, assigning uid=%d\n", cluster, clusterSize, uid)
 			clusterSet.EachItem(cluster, func(item clustering.ClusterItem) {
-				moveFile(item.(string), uid)
+				moveFile(item.(string), uid, dryRun)
 			})
 		}
 	})
 }
 
-func handleFile(f os.FileInfo, distanceMap clustering.DistanceMap) {
-	ext := filepath.Ext(f.Name())
+func handleFile(filePath string, distanceMap clustering.DistanceMap) {
+	ext := filepath.Ext(filePath)
 	if len(ext) > 1 {
 		ext = ext[1:]
 	}
@@ -125,62 +154,57 @@ func handleFile(f os.FileInfo, distanceMap clustering.DistanceMap) {
 		return
 	}
 
-	filename := filepath.Join(path, f.Name())
-	file, err := os.Open(filename)
+	// filename := filepath.Join(basePath, fileInfo.Name())
+	file, err := os.Open(filePath)
 	if err != nil {
-		Logger.Printf("%s: %v\n", filename, err)
+		Logger.Printf("%s: %v\n", filePath, err)
 		return
 	}
 	defer file.Close()
 
 	img, _, err := image.Decode(file)
 	if err != nil {
-		Logger.Printf("%s: %v\n", filename, err)
+		Logger.Printf("%s: %v\n", filePath, err)
 		return
 	}
-	handleImage(filename, img, f, distanceMap)
+	handleImage(filePath, img, distanceMap)
 }
 
-func handleImage(filename string, img image.Image, f os.FileInfo, distanceMap clustering.DistanceMap) {
-	// Add image "img" to the store.
-	Logger.Printf("hashing %s\n", f.Name())
+func handleImage(filePath string, img image.Image, distanceMap clustering.DistanceMap) {
+	Logger.Printf("hashing %s\n", filePath)
 	hash, _ := duplo.CreateHash(img)
 	matches := store.Query(hash)
-	store.Add(f, hash)
+	store.Add(filePath, hash)
 	distanceItem := make(map[clustering.ClusterItem]float64)
 	if len(matches) > 0 {
 		sort.Sort(matches)
 		Logger.Printf("adding %d matches to cluster set\n", len(matches))
 
 		for _, match := range matches {
-			fileInfo := match.ID.(os.FileInfo)
-			// Logger.Printf("    %s score with %s (%d)\n", filename, fileInfo.Name(), int(match.Score))
-			distanceItem[fileInfo.Name()] = match.Score
+			matchFilePath := match.ID.(string)
+			Logger.Printf("    %s score with %s (%d)\n", filePath, matchFilePath, int(match.Score))
+			distanceItem[matchFilePath] = match.Score
 		}
-
-		//match := matches[0]
-		//fi := match.ID.(os.FileInfo)
-		//// Logger.Printf("%s closest score with %s (%d)\n", filename, fi.Name(), int(match.Score))
-		//if int(match.Score) <= *sensitivity {
-		//	Logger.Printf("%s matches: %s\n", filename, fi.Name())
-		//}
 	} else {
-		Logger.Println("file has no matches ", filename)
+		Logger.Println("file has no matches ", filePath)
 	}
-	distanceMap[f.Name()] = distanceItem
+	distanceMap[filePath] = distanceItem
 }
 
-func moveFile(filename string, uid int64) {
-	filenameSuffix := filename
-	if match := constants.DuplicateRegExp.FindString(filename); match != "" {
-		filenameSuffix = strings.TrimPrefix(filename, match)
+func moveFile(filePath string, uid int64, dryRun bool) {
+
+	fileDir, fileName := filepath.Split(filePath)
+	filenameSuffix := fileName
+	if match := constants.DuplicateRegExp.FindString(fileName); match != "" {
+		filenameSuffix = strings.TrimPrefix(fileName, match)
 	}
 	newFilename := fmt.Sprintf("%s_%d_%s", "DUP", uid, filenameSuffix)
-	if dryRun, _ := findDuplicatesCmd.Flags().GetBool("dryrun"); dryRun {
-		Logger.Printf("    would move file %s to %s\n", filename, newFilename)
+	if dryRun {
+		Logger.Printf("    would move file %s to %s\n", fileName, newFilename)
 	} else {
-		if err := os.Rename(filepath.Join(path, filename), filepath.Join(path, newFilename)); err != nil {
-			// Logger.Printf("error moving file %s to %s\n", filename, newFilename)
+		Logger.Printf("moving file %s to %s\n", fileName, newFilename)
+		if err := os.Rename(filePath, filepath.Join(fileDir, newFilename)); err != nil {
+			Logger.Printf("error moving file %s to %s\n", fileName, newFilename)
 		}
 	}
 }

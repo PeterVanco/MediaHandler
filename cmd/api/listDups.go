@@ -45,7 +45,7 @@ func getPhotoMap(root string) (map[string]SameSizeMap, error) {
 	photoMap := make(map[string]SameSizeMap)
 
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if constants.FilterPAth(path) {
+		if constants.FilterPath(path) {
 			return filepath.SkipDir
 		}
 
